@@ -1,0 +1,15 @@
+{
+  "name": "verdant-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "mobile": "pnpm --filter mobile dev",
+    "backend": "pnpm --filter backend dev",
+    "build:shared": "pnpm --filter shared build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
