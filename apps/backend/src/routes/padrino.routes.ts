@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getSupabase } from '../lib/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import { getPlantStage } from '../utils/plant.utils';
+import { sendPushNotification } from '../services/notification.service';
 import type { ApiResponse } from '@verdant/shared';
 
 const router = Router();
@@ -212,10 +213,60 @@ router.patch('/confirmar/:token', async (req: Request, res: Response) => {
     const { error: achError } = await supabase
       .from('achievements')
       .insert({ user_id: streak.user_id, achievement_key: `day_${milestone}` });
-    if (!achError) newAchievement = `day_${milestone}`;
+
+    if (!achError) {
+      newAchievement = `day_${milestone}`;
+
+      // Auto-publicar en el muro de comunidad
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('full_name, institution_id')
+        .eq('id', streak.user_id)
+        .maybeSingle();
+
+      if (userProfile) {
+        const MILESTONE_EMOJIS: Record<number, string> = {
+          1: '🌱', 3: '🌿', 7: '💪', 15: '🌬️', 30: '🌸', 60: '❤️', 100: '👑',
+        };
+        await supabase.from('community_posts').insert({
+          user_id: streak.user_id,
+          institution_id: userProfile.institution_id,
+          post_type: 'achievement',
+          content: `🏆 ${userProfile.full_name} acaba de completar ${milestone} ${milestone === 1 ? 'día' : 'días'} sin fumar`,
+          emoji: MILESTONE_EMOJIS[milestone] ?? '🌿',
+          likes_count: 0,
+        });
+      }
+    }
   }
 
   console.log(`[padrino] ✅ Día confirmado — ${daysCount} días totales${newAchievement ? ` | logro: ${newAchievement}` : ''}`);
+
+  // Enviar push notification al usuario
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', streak.user_id)
+    .maybeSingle();
+
+  sendPushNotification(
+    userRow?.push_token as string | null,
+    '🎉 ¡Día confirmado!',
+    'Tu padrino validó tu día limpio. ¡Sigue así!',
+  );
+
+  // Broadcast al canal del usuario — fire-and-forget (Postgres Changes también notifica al móvil)
+  const broadcastChannel = supabase.channel(`user-${streak.user_id}`);
+  broadcastChannel.subscribe((status) => {
+    if (status !== 'SUBSCRIBED') return;
+    broadcastChannel
+      .send({
+        type: 'broadcast',
+        event: 'day_confirmed',
+        payload: { daysCount, newAchievement, message: '¡Tu padrino confirmó tu día limpio! 🌱' },
+      })
+      .finally(() => supabase.removeChannel(broadcastChannel));
+  });
 
   res.json({ success: true, data: { confirmed: true, daysCount, newAchievement } });
 });

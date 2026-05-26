@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 import { supabase } from '@/services/supabase';
 
@@ -53,13 +53,14 @@ export default function LogrosScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.loading}>
+      <SafeAreaView style={styles.loading}>
         <ActivityIndicator color={Colors.green500} size="large" />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Tus logros</Text>
       <Text style={styles.subtitle}>{diasTotales} {diasTotales === 1 ? 'día' : 'días'} sin fumar</Text>
@@ -118,6 +119,7 @@ export default function LogrosScreen() {
         })}
       </View>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 

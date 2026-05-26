@@ -23,11 +23,11 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Inicio', tabBarIcon: ({ color }) => <TabIcon emoji="🌿" color={color} /> }}
+        options={{ title: 'Inicio', tabBarIcon: ({ color }) => <TabIcon emoji="🏠" color={color} /> }}
       />
       <Tabs.Screen
-        name="juegos"
-        options={{ title: 'Juegos', tabBarIcon: ({ color }) => <TabIcon emoji="🎮" color={color} /> }}
+        name="comunidad"
+        options={{ title: 'Comunidad', tabBarIcon: ({ color }) => <TabIcon emoji="👥" color={color} /> }}
       />
       <Tabs.Screen
         name="logros"
@@ -37,6 +37,12 @@ export default function TabsLayout() {
         name="recursos"
         options={{ title: 'Recursos', tabBarIcon: ({ color }) => <TabIcon emoji="📚" color={color} /> }}
       />
+      <Tabs.Screen
+        name="perfil"
+        options={{ title: 'Perfil', tabBarIcon: ({ color }) => <TabIcon emoji="⚙️" color={color} /> }}
+      />
+      {/* Ocultar la tab de juegos — ahora vive dentro de Recursos */}
+      <Tabs.Screen name="juegos" options={{ href: null }} />
     </Tabs>
   );
 }

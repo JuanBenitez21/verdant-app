@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator, AppState } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat } from 'react-native-reanimated';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 import { usePlantaStore } from '@/store/planta.store';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,6 +13,9 @@ import { getFunFactForMilestone } from '@/constants/funfacts';
 import { PlantaAnimada } from '@/components/planta/PlantaAnimada';
 import { FunFactSheet } from '@/components/funfact/FunFactSheet';
 import { PadrinoCard } from '@/components/padrino/PadrinoCard';
+import { CelebrationModal } from '@/components/ui/CelebrationModal';
+import { getSimulatedWearableData, formatPasos } from '@/services/wearable.service';
+import { useNotifications, cancelDailyReminder } from '@/hooks/useNotifications';
 import type { PlantType } from '@verdant/shared';
 
 const T = ScreenTheme.dark;
@@ -56,38 +59,41 @@ export default function DashboardScreen() {
 
   const racha = useRacha(userId);
   const { score, scoreLevel, cargarScore } = useScore();
+  useNotifications(userId);
   const { pendientes, cargarPendientes } = usePadrino();
 
-  // Carga racha, score y pendientes como padrino al montar
   useEffect(() => {
     racha.cargarRacha();
     cargarScore();
     cargarPendientes();
   }, [userId]);
 
-  // Recarga pendientes cuando la app vuelve al foco (tras confirmar desde otra pantalla)
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        cargarPendientes();
-      }
+      if (state === 'active') cargarPendientes();
     });
     return () => sub.remove();
   }, [userId]);
 
+  // Animación de pulso para el estado "esperando confirmación"
+  const pulseOpacity = useSharedValue(1);
+  useEffect(() => {
+    if (racha.esperandoConfirmacion) {
+      pulseOpacity.value = withRepeat(withTiming(0.55, { duration: 900 }), -1, true);
+    } else {
+      pulseOpacity.value = 1;
+    }
+  }, [racha.esperandoConfirmacion]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
+
   async function handleReportarDia() {
     previousDiasRef.current = racha.diasTotales;
-
     const result = await racha.reportarDiaLimpio();
-
     if (result) {
       const milestone = getFunFactForMilestone(result.daysCount);
-      if (milestone) {
-        setFunFactVisible(true);
-      } else {
-        Alert.alert('¡Día reportado! 🌱', 'Tu padrino recibirá un email para confirmar tu día.');
-      }
+      if (milestone) setFunFactVisible(true);
       cargarScore();
+      cancelDailyReminder();
     } else if (racha.error) {
       Alert.alert('Error', racha.error);
     }
@@ -136,10 +142,7 @@ export default function DashboardScreen() {
 
         {/* Planta — hero principal */}
         <View style={styles.plantCard}>
-          <PlantaAnimada
-            diasTotales={racha.diasTotales}
-            previousDias={previousDiasRef.current}
-          />
+          <PlantaAnimada diasTotales={racha.diasTotales} previousDias={previousDiasRef.current} />
           <Text style={styles.plantName}>{profile?.plant_name ?? 'Mi planta'}</Text>
           <Text style={styles.plantStage}>{currentStage.label}</Text>
           <View style={styles.streakBadge}>
@@ -153,8 +156,8 @@ export default function DashboardScreen() {
           <MetricCard label="Cigarrillos" value={String(ahorro.cigarrillosEvitados)} sub="evitados" />
         </View>
 
-        {/* Botón principal */}
-        {racha.puedeReportarHoy ? (
+        {/* Botón principal — 3 estados */}
+        {racha.puedeReportarHoy && (
           <Pressable
             style={[styles.reportBtn, racha.isReporting && styles.reportBtnDisabled]}
             onPress={handleReportarDia}
@@ -164,32 +167,48 @@ export default function DashboardScreen() {
               <ActivityIndicator color={Colors.white} />
             ) : (
               <>
-                <Text style={styles.reportBtnText}>✅ Reportar Día Limpio</Text>
-                <Text style={styles.reportBtnSub}>Tu padrino recibirá una confirmación</Text>
+                <Text style={styles.reportBtnText}>🌱 Reportar día limpio</Text>
+                <Text style={styles.reportBtnSub}>El padrino recibirá confirmación</Text>
               </>
             )}
           </Pressable>
-        ) : (
-          <View style={styles.reportedBtn}>
-            <Text style={styles.reportedBtnText}>Ya reportaste hoy ✓</Text>
-            <Text style={styles.reportedBtnSub}>Tu padrino tiene hasta medianoche para confirmar</Text>
+        )}
+
+        {racha.esperandoConfirmacion && (
+          <Animated.View style={[styles.waitingBtn, pulseStyle]}>
+            <Text style={styles.waitingBtnText}>⏳ Esperando confirmación del padrino</Text>
+            <Text style={styles.waitingBtnSub}>Tu padrino recibirá un recordatorio a las 7pm</Text>
+          </Animated.View>
+        )}
+
+        {racha.godparentConfirmedToday && (
+          <View style={styles.confirmedBtn}>
+            <Text style={styles.confirmedBtnText}>✅ Día confirmado</Text>
+            <Text style={styles.confirmedBtnSub}>Tu padrino validó este día</Text>
           </View>
         )}
 
         {/* Score Verdant */}
         <ScoreCard score={scoreLevel.total} label={scoreLevel.label} reward={scoreLevel.reward} />
 
-        {/* Sección de padrino — solo visible cuando hay confirmaciones pendientes */}
-        <PadrinoCard
-          pendientes={pendientes}
-          onConfirmado={cargarPendientes}
-        />
+        {/* Wearable — datos simulados */}
+        <WearableCard diasTotales={racha.diasTotales} />
+
+        {/* Sección de padrino */}
+        <PadrinoCard pendientes={pendientes} onConfirmado={cargarPendientes} />
       </ScrollView>
 
       <FunFactSheet
         diasTotales={racha.diasTotales}
         visible={funFactVisible}
         onClose={() => setFunFactVisible(false)}
+      />
+
+      <CelebrationModal
+        visible={racha.showCelebration}
+        daysCount={racha.celebrationData?.daysCount ?? racha.diasTotales}
+        newAchievement={racha.celebrationData?.newAchievement}
+        onClose={racha.clearCelebration}
       />
     </>
   );
@@ -233,6 +252,54 @@ function ScoreCard({ score, label, reward }: { score: number; label: string; rew
   );
 }
 
+function WearableCard({ diasTotales }: { diasTotales: number }) {
+  const w = getSimulatedWearableData(diasTotales);
+  return (
+    <View style={wearableStyles.card}>
+      <Text style={wearableStyles.title}>Tu cuerpo mejora</Text>
+      <View style={wearableStyles.row}>
+        <WearableStat emoji="❤️" label="FC" value={`${w.frecuenciaCardiaca}bpm`} />
+        <View style={wearableStyles.divider} />
+        <WearableStat emoji="👟" label="Pasos" value={formatPasos(w.pasosDiarios)} />
+        <View style={wearableStyles.divider} />
+        <WearableStat emoji="😴" label="Sueño" value={`${w.calidadSueno}%`} />
+      </View>
+      <Text style={wearableStyles.note}>Datos estimados basados en tu progreso</Text>
+      <Text style={wearableStyles.cta}>Conecta tu wearable para datos reales →</Text>
+    </View>
+  );
+}
+
+function WearableStat({ emoji, label, value }: { emoji: string; label: string; value: string }) {
+  return (
+    <View style={wearableStyles.stat}>
+      <Text style={wearableStyles.statEmoji}>{emoji}</Text>
+      <Text style={wearableStyles.statValue}>{value}</Text>
+      <Text style={wearableStyles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+const wearableStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.green800,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.green700,
+  },
+  title: { ...Typography.labelSmall, color: Colors.green200, textTransform: 'uppercase' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  divider: { width: 1, height: 40, backgroundColor: 'rgba(255,255,255,0.1)' },
+  stat: { alignItems: 'center', gap: 2, flex: 1 },
+  statEmoji: { fontSize: 20 },
+  statValue: { ...Typography.labelLarge, color: Colors.white },
+  statLabel: { ...Typography.caption, color: Colors.green300 },
+  note: { ...Typography.caption, color: Colors.green300, textAlign: 'center' },
+  cta: { ...Typography.caption, color: Colors.green600, textAlign: 'center' },
+});
+
 const metricStyles = StyleSheet.create({
   card: {
     flex: 1,
@@ -257,29 +324,12 @@ const scoreStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.07)',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   label: { ...Typography.labelSmall, color: Colors.green200, textTransform: 'uppercase' },
   value: { ...Typography.displaySmall, color: Colors.white },
-  barTrack: {
-    height: 8,
-    backgroundColor: Colors.green700,
-    borderRadius: Radius.full,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    backgroundColor: Colors.green300,
-    borderRadius: Radius.full,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  barTrack: { height: 8, backgroundColor: Colors.green700, borderRadius: Radius.full, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: Colors.green300, borderRadius: Radius.full },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   levelLabel: { ...Typography.bodySmall, color: Colors.green300 },
   reward: { ...Typography.bodySmall, color: Colors.amber },
 });
@@ -292,11 +342,7 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xl,
     gap: Spacing.lg,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   greeting: { ...Typography.displaySmall, color: Colors.white },
   date: { ...Typography.bodyMedium, color: Colors.green200, textTransform: 'capitalize' },
   signOutBtn: {
@@ -328,6 +374,7 @@ const styles = StyleSheet.create({
   },
   streakText: { ...Typography.labelSmall, color: Colors.green300 },
   metricsRow: { flexDirection: 'row', gap: Spacing.sm },
+  // Estado 1 — puede reportar
   reportBtn: {
     backgroundColor: Colors.green400,
     borderRadius: Radius.md,
@@ -338,14 +385,28 @@ const styles = StyleSheet.create({
   reportBtnDisabled: { opacity: 0.7 },
   reportBtnText: { ...Typography.labelLarge, color: Colors.white, fontSize: 17 },
   reportBtnSub: { ...Typography.caption, color: 'rgba(255,255,255,0.7)' },
-  reportedBtn: {
+  // Estado 2 — esperando confirmación (con pulso)
+  waitingBtn: {
     backgroundColor: Colors.green700,
     borderRadius: Radius.md,
     paddingVertical: Spacing.md + 4,
     alignItems: 'center',
     gap: Spacing.xs,
-    opacity: 0.8,
+    borderWidth: 1,
+    borderColor: Colors.amber,
   },
-  reportedBtnText: { ...Typography.labelLarge, color: Colors.green200, fontSize: 17 },
-  reportedBtnSub: { ...Typography.caption, color: Colors.green300 },
+  waitingBtnText: { ...Typography.labelLarge, color: Colors.amber, fontSize: 16 },
+  waitingBtnSub: { ...Typography.caption, color: Colors.amber },
+  // Estado 3 — confirmado por padrino
+  confirmedBtn: {
+    backgroundColor: Colors.green700,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.md + 4,
+    alignItems: 'center',
+    gap: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.green500,
+  },
+  confirmedBtnText: { ...Typography.labelLarge, color: Colors.green300, fontSize: 17 },
+  confirmedBtnSub: { ...Typography.caption, color: Colors.green300 },
 });

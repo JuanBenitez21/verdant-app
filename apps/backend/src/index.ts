@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.routes';
 import rachaRoutes from './routes/racha.routes';
 import padrinoRoutes from './routes/padrino.routes';
 import scoreRoutes from './routes/score.routes';
+import adminRoutes from './routes/admin.routes';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3001;
@@ -28,6 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rachas', rachaRoutes);
 app.use('/api/padrino', padrinoRoutes);
 app.use('/api/score', scoreRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Verdant backend corriendo en:`);

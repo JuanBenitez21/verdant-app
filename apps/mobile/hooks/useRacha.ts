@@ -1,14 +1,23 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/services/supabase';
 import { usePlantaStore } from '@/store/planta.store';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+export interface CelebrationData {
+  daysCount: number;
+  newAchievement: string | null;
+}
 
 export interface RachaState {
   diasTotales: number;
   rachaActual: number;
   ultimoReporte: string | null;
   puedeReportarHoy: boolean;
+  esperandoConfirmacion: boolean;
+  godparentConfirmedToday: boolean;
+  showCelebration: boolean;
+  celebrationData: CelebrationData | null;
   isLoading: boolean;
   isReporting: boolean;
   error: string | null;
@@ -20,6 +29,10 @@ export function useRacha(userId: string | null) {
     rachaActual: 0,
     ultimoReporte: null,
     puedeReportarHoy: true,
+    esperandoConfirmacion: false,
+    godparentConfirmedToday: false,
+    showCelebration: false,
+    celebrationData: null,
     isLoading: true,
     isReporting: false,
     error: null,
@@ -47,7 +60,6 @@ export function useRacha(userId: string | null) {
     const confirmed = streaks?.filter(s => s.godparent_confirmed) ?? [];
     const diasTotales = confirmed.length;
 
-    // Racha actual: días consecutivos confirmados hacia atrás desde hoy
     let rachaActual = 0;
     const sortedDates = confirmed.map(s => s.date as string).sort().reverse();
     for (let i = 0; i < sortedDates.length; i++) {
@@ -61,20 +73,75 @@ export function useRacha(userId: string | null) {
     }
 
     const ultimoReporte = streaks?.[0]?.date as string | null ?? null;
-    const puedeReportarHoy = !streaks?.some(s => s.date === today);
+    const todayStreak = streaks?.find(s => s.date === today);
+    const puedeReportarHoy = !todayStreak;
+    const esperandoConfirmacion = !!todayStreak?.self_reported && !todayStreak?.godparent_confirmed;
+    const godparentConfirmedToday = !!todayStreak?.godparent_confirmed;
 
     setStreakDays(diasTotales);
 
-    setState({
+    setState(s => ({
+      ...s,
       diasTotales,
       rachaActual,
       ultimoReporte,
       puedeReportarHoy,
+      esperandoConfirmacion,
+      godparentConfirmedToday,
       isLoading: false,
       isReporting: false,
       error: null,
-    });
+    }));
   }, [userId, setStreakDays]);
+
+  // Nombre de canal único por instancia — evita conflictos cuando el hook se monta en múltiples componentes
+  const channelName = useMemo(
+    () => `streaks-rt-${userId ?? 'anon'}-${Math.random().toString(36).slice(2, 8)}`,
+    [userId],
+  );
+
+  // Ref para evitar stale closure en el callback de Realtime
+  const cargarRachaRef = useRef(cargarRacha);
+  useEffect(() => { cargarRachaRef.current = cargarRacha; }, [cargarRacha]);
+
+  // Suscripción a Postgres Changes — cuando el padrino confirma, muestra celebración
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'streaks',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const updated = payload.new as { godparent_confirmed: boolean; date: string };
+          const today = new Date().toISOString().split('T')[0]!;
+          if (updated.godparent_confirmed && updated.date === today) {
+            setState(s => ({
+              ...s,
+              esperandoConfirmacion: false,
+              godparentConfirmedToday: true,
+              puedeReportarHoy: false,
+              showCelebration: true,
+              celebrationData: { daysCount: s.diasTotales + 1, newAchievement: null },
+            }));
+            cargarRachaRef.current();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [userId]);
+
+  const clearCelebration = useCallback(() => {
+    setState(s => ({ ...s, showCelebration: false, celebrationData: null }));
+  }, []);
 
   const reportarDiaLimpio = useCallback(async (): Promise<{ daysCount: number } | null> => {
     setState(s => ({ ...s, isReporting: true, error: null }));
@@ -112,17 +179,16 @@ export function useRacha(userId: string | null) {
       return null;
     }
 
-    // Actualizar estado local sin refetch completo
     setState(s => ({
       ...s,
       isReporting: false,
       puedeReportarHoy: false,
-      diasTotales: s.diasTotales,
+      esperandoConfirmacion: true,
       ultimoReporte: today,
     }));
 
     return json.data ?? null;
   }, []);
 
-  return { ...state, cargarRacha, reportarDiaLimpio };
+  return { ...state, cargarRacha, reportarDiaLimpio, clearCelebration };
 }
