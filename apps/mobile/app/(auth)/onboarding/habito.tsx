@@ -8,17 +8,17 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { useAuthStore } from '@/store/auth.store';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 
 const T = ScreenTheme.light;
 
 export default function OnboardingHabitoScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
 
   const [cigarettesPerDay, setCigarettesPerDay] = useState('10');
   const [yearsSmoking, setYearsSmoking] = useState('1');
@@ -42,16 +42,35 @@ export default function OnboardingHabitoScreen() {
   }
 
   async function handleContinue() {
-    if (!validate() || !user?.id) return;
+    if (!validate()) return;
     setLoading(true);
     try {
-      await supabase.from('users').update({
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        Alert.alert('Error', 'Sesión no encontrada. Vuelve a iniciar sesión.');
+        return;
+      }
+
+      const domain = session.user.email?.split('@')[1] ?? '';
+      const { data: institution } = await supabase
+        .from('institutions')
+        .select('id')
+        .eq('domain', domain)
+        .maybeSingle();
+
+      const { error } = await supabase.from('users').upsert({
+        id: session.user.id,
+        institution_id: institution?.id ?? null,
+        full_name: session.user.user_metadata?.full_name ?? '',
         cigarettes_per_day: Number(cigarettesPerDay),
         years_smoking: Number(yearsSmoking),
         price_per_pack: Number(pricePerPack),
-      }).eq('id', user.id);
+      });
 
+      if (error) throw error;
       router.push('/(auth)/onboarding/planta');
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar. Intenta nuevamente.');
     } finally {
       setLoading(false);
     }
@@ -64,6 +83,7 @@ export default function OnboardingHabitoScreen() {
     >
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
+          <StepDots current={2} />
           <Text style={styles.step}>Paso 2 de 4</Text>
           <Text style={styles.title}>Tu hábito actual</Text>
           <Text style={styles.subtitle}>
@@ -103,10 +123,23 @@ export default function OnboardingHabitoScreen() {
           onPress={handleContinue}
           disabled={loading}
         >
-          <Text style={styles.btnText}>Continuar →</Text>
+          {loading
+            ? <ActivityIndicator color={Colors.white} />
+            : <Text style={styles.btnText}>Continuar →</Text>
+          }
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function StepDots({ current }: { current: number }) {
+  return (
+    <View style={dotStyles.row}>
+      {[1, 2, 3, 4].map((n) => (
+        <View key={n} style={[dotStyles.dot, n === current && dotStyles.dotActive]} />
+      ))}
+    </View>
   );
 }
 
@@ -142,6 +175,17 @@ function FieldInput({
     </View>
   );
 }
+
+const dotStyles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: Spacing.xs },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.warm,
+  },
+  dotActive: { backgroundColor: Colors.green500, width: 24 },
+});
 
 const fieldStyles = StyleSheet.create({
   label: { ...Typography.labelSmall, color: Colors.textMid, textTransform: 'uppercase', marginBottom: Spacing.xs },

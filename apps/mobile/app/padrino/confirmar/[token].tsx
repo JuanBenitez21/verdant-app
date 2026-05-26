@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   ScrollView,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
@@ -15,48 +13,107 @@ import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 const T = ScreenTheme.light;
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+interface TokenInfo {
+  userName: string;
+  plantName: string;
+  plantEmoji: string;
+  daysCount: number;
+  frictionOptions: string[];
+}
+
+type ScreenState = 'loading' | 'error' | 'ready' | 'submitting' | 'success' | 'uncertain';
+
 export default function ConfirmarPadrinoScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
-  const [answer, setAnswer] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
+  const [info, setInfo] = useState<TokenInfo | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [screenState, setScreenState] = useState<ScreenState>('loading');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/padrino/confirmar/${token}`)
+      .then(r => r.json())
+      .then((json: { success: boolean; data?: TokenInfo; error?: { message: string } }) => {
+        if (!json.success || !json.data) {
+          setErrorMsg(json.error?.message ?? 'Token inválido o expirado');
+          setScreenState('error');
+          return;
+        }
+        setInfo(json.data);
+        setScreenState('ready');
+      })
+      .catch(() => {
+        setErrorMsg('No se pudo conectar al servidor');
+        setScreenState('error');
+      });
+  }, [token]);
 
   async function handleConfirm() {
-    if (!answer.trim()) {
-      Alert.alert('Respuesta requerida', 'Por favor responde la pregunta de confirmación');
+    if (!selected) return;
+    setScreenState('submitting');
+
+    const res = await fetch(`${API_URL}/api/padrino/confirmar/${token}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frictionAnswer: selected }),
+    });
+
+    const json = await res.json() as {
+      success: boolean;
+      data?: { confirmed: boolean; message?: string };
+      error?: { message: string };
+    };
+
+    if (!json.success) {
+      setErrorMsg(json.error?.message ?? 'Error al confirmar');
+      setScreenState('error');
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/padrino/confirmar/${token}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frictionAnswer: answer.trim() }),
-      });
-
-      const json = await res.json() as { success: boolean; error?: { message: string } };
-
-      if (!json.success) {
-        Alert.alert('Error', json.error?.message ?? 'No se pudo confirmar');
-        return;
-      }
-
-      setConfirmed(true);
-    } catch {
-      Alert.alert('Error', 'No se pudo conectar al servidor. Intenta más tarde.');
-    } finally {
-      setLoading(false);
-    }
+    setScreenState(json.data?.confirmed ? 'success' : 'uncertain');
   }
 
-  if (confirmed) {
+  if (screenState === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={Colors.green500} size="large" />
+        <Text style={styles.loadingText}>Verificando enlace…</Text>
+      </View>
+    );
+  }
+
+  if (screenState === 'error') {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorEmoji}>😕</Text>
+        <Text style={styles.errorTitle}>Ups</Text>
+        <Text style={styles.errorBody}>{errorMsg}</Text>
+      </View>
+    );
+  }
+
+  if (screenState === 'success') {
     return (
       <View style={styles.successContainer}>
-        <Text style={styles.successEmoji}>🌿</Text>
+        <Text style={styles.successEmoji}>{info?.plantEmoji ?? '🌿'}</Text>
         <Text style={styles.successTitle}>¡Confirmado!</Text>
         <Text style={styles.successBody}>
-          Le dijiste que sí. Su planta creció hoy. Gracias por acompañarlo en este camino.
+          Le dijiste que sí. La planta <Text style={{ fontWeight: '700' }}>{info?.plantName}</Text> de {info?.userName} creció hoy.{'\n'}Gracias por acompañarlo/a en este camino.
+        </Text>
+        <View style={styles.daysBadge}>
+          <Text style={styles.daysBadgeText}>Día {info?.daysCount} 🔥</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (screenState === 'uncertain') {
+    return (
+      <View style={styles.successContainer}>
+        <Text style={styles.successEmoji}>🤝</Text>
+        <Text style={styles.successTitle}>Gracias por tu honestidad</Text>
+        <Text style={styles.successBody}>
+          Tu respuesta quedó registrada. {info?.userName} sabrá que hoy no pudiste confirmar.
         </Text>
       </View>
     );
@@ -65,37 +122,38 @@ export default function ConfirmarPadrinoScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.inner}>
       <Text style={styles.logo}>🌿 Verdant</Text>
-      <Text style={styles.title}>Confirmación de padrino</Text>
-      <Text style={styles.body}>
-        Tu amigo reportó un día sin fumar y necesita que lo confirmes. Por favor responde la pregunta:
-      </Text>
 
-      <View style={styles.questionCard}>
-        <Text style={styles.question}>
-          ¿Estás seguro de que tu amigo no fumó hoy?
-        </Text>
+      <View style={styles.plantHeader}>
+        <Text style={styles.plantEmoji}>{info?.plantEmoji}</Text>
+        <View>
+          <Text style={styles.title}>Confirma el día de {info?.userName}</Text>
+          <Text style={styles.subtitle}>
+            Día {info?.daysCount} · Planta: {info?.plantName}
+          </Text>
+        </View>
       </View>
 
-      <View>
-        <Text style={styles.label}>Tu respuesta</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Escribe Sí o No, y cualquier comentario..."
-          placeholderTextColor={Colors.textSoft}
-          value={answer}
-          onChangeText={setAnswer}
-          multiline
-          numberOfLines={3}
-          textAlignVertical="top"
-        />
-      </View>
+      <Text style={styles.questionLabel}>¿Cómo fue hoy?</Text>
+
+      {info?.frictionOptions.map((option) => (
+        <Pressable
+          key={option}
+          style={[styles.option, selected === option && styles.optionSelected]}
+          onPress={() => setSelected(option)}
+        >
+          <View style={[styles.radio, selected === option && styles.radioSelected]} />
+          <Text style={[styles.optionText, selected === option && styles.optionTextSelected]}>
+            {option}
+          </Text>
+        </Pressable>
+      ))}
 
       <Pressable
-        style={[styles.btnPrimary, loading && styles.btnDisabled]}
+        style={[styles.btnPrimary, (!selected || screenState === 'submitting') && styles.btnDisabled]}
         onPress={handleConfirm}
-        disabled={loading}
+        disabled={!selected || screenState === 'submitting'}
       >
-        {loading
+        {screenState === 'submitting'
           ? <ActivityIndicator color={Colors.white} />
           : <Text style={styles.btnText}>Confirmar</Text>
         }
@@ -109,10 +167,7 @@ export default function ConfirmarPadrinoScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: T.bg,
-  },
+  container: { flex: 1, backgroundColor: T.bg },
   inner: {
     flexGrow: 1,
     paddingHorizontal: Spacing.lg,
@@ -120,65 +175,57 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xl,
     gap: Spacing.lg,
   },
-  logo: {
-    ...Typography.labelLarge,
-    color: Colors.green500,
+  center: {
+    flex: 1,
+    backgroundColor: T.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+    padding: Spacing.xl,
   },
-  title: {
-    ...Typography.displayMedium,
-    color: Colors.textDark,
-  },
-  body: {
-    ...Typography.bodyLarge,
-    color: Colors.textMid,
-  },
-  questionCard: {
-    backgroundColor: Colors.green50,
+  loadingText: { ...Typography.bodyMedium, color: Colors.textSoft },
+  errorEmoji: { fontSize: 48 },
+  errorTitle: { ...Typography.displaySmall, color: Colors.textDark },
+  errorBody: { ...Typography.bodyMedium, color: Colors.textMid, textAlign: 'center' },
+  logo: { ...Typography.labelLarge, color: Colors.green500 },
+  plantHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  plantEmoji: { fontSize: 48 },
+  title: { ...Typography.displaySmall, color: Colors.textDark, flexShrink: 1 },
+  subtitle: { ...Typography.bodySmall, color: Colors.textSoft, marginTop: 2 },
+  questionLabel: { ...Typography.labelLarge, color: Colors.textMid },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.white,
     borderRadius: Radius.md,
     padding: Spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.green400,
-  },
-  question: {
-    ...Typography.bodyLarge,
-    color: Colors.textDark,
-    fontWeight: '600',
-  },
-  label: {
-    ...Typography.labelSmall,
-    color: Colors.textMid,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.xs,
-  },
-  input: {
-    backgroundColor: Colors.white,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: Colors.warm,
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 4,
-    color: Colors.textDark,
-    ...Typography.bodyLarge,
-    minHeight: 90,
   },
+  optionSelected: {
+    borderColor: Colors.green500,
+    backgroundColor: Colors.green50,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: Colors.textSoft,
+  },
+  radioSelected: { borderColor: Colors.green500, backgroundColor: Colors.green500 },
+  optionText: { ...Typography.bodyMedium, color: Colors.textMid, flex: 1 },
+  optionTextSelected: { color: Colors.textDark, fontWeight: '600' },
   btnPrimary: {
     backgroundColor: Colors.green800,
     borderRadius: Radius.md,
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
-  btnDisabled: {
-    opacity: 0.6,
-  },
-  btnText: {
-    ...Typography.labelLarge,
-    color: Colors.white,
-  },
-  disclaimer: {
-    ...Typography.caption,
-    color: Colors.textSoft,
-    textAlign: 'center',
-  },
+  btnDisabled: { opacity: 0.4 },
+  btnText: { ...Typography.labelLarge, color: Colors.white },
+  disclaimer: { ...Typography.caption, color: Colors.textSoft, textAlign: 'center' },
   successContainer: {
     flex: 1,
     backgroundColor: Colors.green50,
@@ -187,16 +234,15 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     gap: Spacing.md,
   },
-  successEmoji: {
-    fontSize: 72,
+  successEmoji: { fontSize: 72 },
+  successTitle: { ...Typography.displayMedium, color: Colors.green800 },
+  successBody: { ...Typography.bodyLarge, color: Colors.textMid, textAlign: 'center', lineHeight: 26 },
+  daysBadge: {
+    backgroundColor: Colors.green500,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    marginTop: Spacing.sm,
   },
-  successTitle: {
-    ...Typography.displayMedium,
-    color: Colors.green800,
-  },
-  successBody: {
-    ...Typography.bodyLarge,
-    color: Colors.textMid,
-    textAlign: 'center',
-  },
+  daysBadgeText: { ...Typography.labelLarge, color: Colors.white },
 });

@@ -11,14 +11,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { useAuthStore } from '@/store/auth.store';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 
 const T = ScreenTheme.light;
 
 export default function OnboardingPadrinoScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
 
   const [padrinoEmail, setPadrinoEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,15 +30,29 @@ export default function OnboardingPadrinoScreen() {
   }
 
   async function handleInvite() {
-    if (!validateEmail(padrinoEmail) || !user?.id) return;
+    if (!validateEmail(padrinoEmail)) return;
     setLoading(true);
     try {
-      await supabase.from('users').update({ godparent_email: padrinoEmail.trim().toLowerCase() }).eq('id', user.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        Alert.alert('Error', 'Sesión no encontrada. Vuelve a iniciar sesión.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('users')
+        .update({ godparent_email: padrinoEmail.trim().toLowerCase() })
+        .eq('id', session.user.id);
+
+      if (error) throw error;
+
       Alert.alert(
         '¡Invitación enviada!',
         `Le avisamos a ${padrinoEmail} que será tu padrino. Cuando acepte, tu racha quedará protegida.`,
         [{ text: 'Ir al inicio', onPress: () => router.replace('/(tabs)') }],
       );
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar. Intenta nuevamente.');
     } finally {
       setLoading(false);
     }
@@ -53,6 +65,11 @@ export default function OnboardingPadrinoScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.inner}>
       <View style={styles.header}>
+        <View style={dotStyles.row}>
+          {[1, 2, 3, 4].map((n) => (
+            <View key={n} style={[dotStyles.dot, n === 4 && dotStyles.dotActive]} />
+          ))}
+        </View>
         <Text style={styles.step}>Paso 4 de 4</Text>
         <Text style={styles.title}>Invita a tu padrino</Text>
         <Text style={styles.subtitle}>
@@ -101,6 +118,12 @@ export default function OnboardingPadrinoScreen() {
     </ScrollView>
   );
 }
+
+const dotStyles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: Spacing.xs },
+  dot: { width: 8, height: 8, borderRadius: Radius.full, backgroundColor: Colors.warm },
+  dotActive: { backgroundColor: Colors.green500, width: 24 },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.bg },

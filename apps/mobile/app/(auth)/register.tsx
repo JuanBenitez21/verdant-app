@@ -59,15 +59,10 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await signUp(email.trim().toLowerCase(), password, fullName.trim());
-      Alert.alert(
-        '¡Registro exitoso!',
-        'Revisa tu correo para confirmar tu cuenta y luego completa tu perfil.',
-        [{ text: 'Entendido', onPress: () => router.replace('/(auth)/login') }],
-      );
+      router.replace('/(auth)/onboarding/habito');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al registrar';
       Alert.alert('Error', message);
-    } finally {
       setLoading(false);
     }
   }

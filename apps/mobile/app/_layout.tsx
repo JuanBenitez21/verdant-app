@@ -27,10 +27,11 @@ function RootNavigator() {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const inOnboarding = segments[1] === 'onboarding';
 
     if (!accessToken && !inAuthGroup) {
       router.replace('/(auth)/login');
-    } else if (accessToken && inAuthGroup) {
+    } else if (accessToken && inAuthGroup && !inOnboarding) {
       router.replace('/(tabs)');
     }
   }, [accessToken, isLoading]);

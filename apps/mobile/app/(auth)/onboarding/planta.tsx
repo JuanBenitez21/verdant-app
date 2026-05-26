@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { useAuthStore } from '@/store/auth.store';
 import { usePlantaStore } from '@/store/planta.store';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 import { PLANTS } from '@/constants/plants';
@@ -13,7 +12,6 @@ const PLANT_OPTIONS: PlantType[] = ['sakura', 'clasico', 'orquidea', 'cactus'];
 
 export default function OnboardingPlantaScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
   const { setPlant } = usePlantaStore();
 
   const [selectedType, setSelectedType] = useState<PlantType>('sakura');
@@ -23,17 +21,24 @@ export default function OnboardingPlantaScreen() {
 
   async function handleContinue() {
     const name = plantName.trim() || PLANTS[selectedType].name;
-    if (!user?.id) return;
-
     setLoading(true);
     try {
-      await supabase.from('users').update({
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        Alert.alert('Error', 'Sesión no encontrada. Vuelve a iniciar sesión.');
+        return;
+      }
+
+      const { error } = await supabase.from('users').update({
         plant_type: selectedType,
         plant_name: name,
-      }).eq('id', user.id);
+      }).eq('id', session.user.id);
 
+      if (error) throw error;
       setPlant(selectedType, name);
       router.push('/(auth)/onboarding/padrino');
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar. Intenta nuevamente.');
     } finally {
       setLoading(false);
     }
@@ -42,6 +47,11 @@ export default function OnboardingPlantaScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.inner}>
       <View style={styles.header}>
+        <View style={dotStyles.row}>
+          {[1, 2, 3, 4].map((n) => (
+            <View key={n} style={[dotStyles.dot, n === 3 && dotStyles.dotActive]} />
+          ))}
+        </View>
         <Text style={styles.step}>Paso 3 de 4</Text>
         <Text style={styles.title}>Elige tu planta</Text>
         <Text style={styles.subtitle}>Crecerá con tu racha. Cuídala.</Text>
@@ -88,11 +98,20 @@ export default function OnboardingPlantaScreen() {
         onPress={handleContinue}
         disabled={loading}
       >
-        <Text style={styles.btnText}>Plantar semilla →</Text>
+        {loading
+          ? <ActivityIndicator color={Colors.white} />
+          : <Text style={styles.btnText}>Plantar semilla →</Text>
+        }
       </Pressable>
     </ScrollView>
   );
 }
+
+const dotStyles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: Spacing.xs },
+  dot: { width: 8, height: 8, borderRadius: Radius.full, backgroundColor: Colors.warm },
+  dotActive: { backgroundColor: Colors.green500, width: 24 },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.bg },
