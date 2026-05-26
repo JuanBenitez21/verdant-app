@@ -1,6 +1,7 @@
 import sgMail from '@sendgrid/mail';
 
-const APP_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:3001';
+// En producción: URL web de la app. En dev: se usa el deep link scheme "verdant://"
+const APP_URL = process.env['APP_PUBLIC_URL'] ?? 'verdant:/';
 
 export async function sendGodparentEmail(
   godparentEmail: string,

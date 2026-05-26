@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator, AppState } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 import { usePlantaStore } from '@/store/planta.store';
 import { useAuth } from '@/hooks/useAuth';
 import { useRacha } from '@/hooks/useRacha';
 import { useScore } from '@/hooks/useScore';
+import { usePadrino } from '@/hooks/usePadrino';
 import { supabase } from '@/services/supabase';
 import { calcularAhorro, formatCOP } from '@/utils/ahorro';
 import { getFunFactForMilestone } from '@/constants/funfacts';
 import { PlantaAnimada } from '@/components/planta/PlantaAnimada';
 import { FunFactSheet } from '@/components/funfact/FunFactSheet';
+import { PadrinoCard } from '@/components/padrino/PadrinoCard';
 import type { PlantType } from '@verdant/shared';
 
 const T = ScreenTheme.dark;
@@ -54,11 +56,23 @@ export default function DashboardScreen() {
 
   const racha = useRacha(userId);
   const { score, scoreLevel, cargarScore } = useScore();
+  const { pendientes, cargarPendientes } = usePadrino();
 
-  // Carga racha y score al montar
+  // Carga racha, score y pendientes como padrino al montar
   useEffect(() => {
     racha.cargarRacha();
     cargarScore();
+    cargarPendientes();
+  }, [userId]);
+
+  // Recarga pendientes cuando la app vuelve al foco (tras confirmar desde otra pantalla)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        cargarPendientes();
+      }
+    });
+    return () => sub.remove();
   }, [userId]);
 
   async function handleReportarDia() {
@@ -108,9 +122,16 @@ export default function DashboardScreen() {
               {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
             </Text>
           </View>
-          <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
-            <Text style={styles.signOutText}>Salir</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: Spacing.xs }}>
+            {__DEV__ && (
+              <Pressable style={styles.signOutBtn} onPress={() => setFunFactVisible(true)}>
+                <Text style={styles.signOutText}>FF</Text>
+              </Pressable>
+            )}
+            <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
+              <Text style={styles.signOutText}>Salir</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Planta — hero principal */}
@@ -157,6 +178,12 @@ export default function DashboardScreen() {
 
         {/* Score Verdant */}
         <ScoreCard score={scoreLevel.total} label={scoreLevel.label} reward={scoreLevel.reward} />
+
+        {/* Sección de padrino — solo visible cuando hay confirmaciones pendientes */}
+        <PadrinoCard
+          pendientes={pendientes}
+          onConfirmado={cargarPendientes}
+        />
       </ScrollView>
 
       <FunFactSheet

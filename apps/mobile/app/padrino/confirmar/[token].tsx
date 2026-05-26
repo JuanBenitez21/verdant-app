@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
 
 const T = ScreenTheme.light;
@@ -25,6 +25,7 @@ type ScreenState = 'loading' | 'error' | 'ready' | 'submitting' | 'success' | 'u
 
 export default function ConfirmarPadrinoScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
+  const router = useRouter();
   const [info, setInfo] = useState<TokenInfo | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [screenState, setScreenState] = useState<ScreenState>('loading');
@@ -71,6 +72,8 @@ export default function ConfirmarPadrinoScreen() {
     }
 
     setScreenState(json.data?.confirmed ? 'success' : 'uncertain');
+    // Volver automáticamente al dashboard después de 3 segundos
+    setTimeout(() => router.replace('/(tabs)'), 3000);
   }
 
   if (screenState === 'loading') {
@@ -103,6 +106,10 @@ export default function ConfirmarPadrinoScreen() {
         <View style={styles.daysBadge}>
           <Text style={styles.daysBadgeText}>Día {info?.daysCount} 🔥</Text>
         </View>
+        <Text style={styles.redirectNote}>Volviendo al inicio en 3 segundos…</Text>
+        <Pressable style={styles.backBtn} onPress={() => router.replace('/(tabs)')}>
+          <Text style={styles.backBtnText}>Volver al inicio →</Text>
+        </Pressable>
       </View>
     );
   }
@@ -115,6 +122,10 @@ export default function ConfirmarPadrinoScreen() {
         <Text style={styles.successBody}>
           Tu respuesta quedó registrada. {info?.userName} sabrá que hoy no pudiste confirmar.
         </Text>
+        <Text style={styles.redirectNote}>Volviendo al inicio en 3 segundos…</Text>
+        <Pressable style={styles.backBtn} onPress={() => router.replace('/(tabs)')}>
+          <Text style={styles.backBtnText}>Volver al inicio →</Text>
+        </Pressable>
       </View>
     );
   }
@@ -245,4 +256,14 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   daysBadgeText: { ...Typography.labelLarge, color: Colors.white },
+  redirectNote: { ...Typography.caption, color: Colors.textSoft, textAlign: 'center', marginTop: Spacing.xs },
+  backBtn: {
+    backgroundColor: Colors.green800,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.sm + 4,
+    paddingHorizontal: Spacing.xl,
+    alignItems: 'center',
+    marginTop: Spacing.xs,
+  },
+  backBtnText: { ...Typography.labelLarge, color: Colors.white },
 });

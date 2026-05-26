@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../lib/supabase';
+import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
 import { getPlantStage } from '../utils/plant.utils';
 import type { ApiResponse } from '@verdant/shared';
 
@@ -12,75 +13,143 @@ const FRICTION_OPTIONS = [
 ] as const;
 
 const UNCERTAINTY_OPTION = FRICTION_OPTIONS[2];
-
 const ACHIEVEMENT_MILESTONES = [1, 3, 7, 15, 30, 60, 100] as const;
 
-function getSupabase() {
-  return createClient(
-    process.env['SUPABASE_URL'] ?? '',
-    process.env['SUPABASE_SERVICE_ROLE_KEY'] ?? '',
-  );
-}
+// GET /api/padrino/mis-pendientes — confirmaciones pendientes para el usuario actual como padrino
+router.get('/mis-pendientes', requireAuth, async (req: AuthRequest, res: Response) => {
+  const userId = req.userId!;
+  const supabase = getSupabase();
+  const today = new Date().toISOString().split('T')[0]!;
 
-// GET /api/padrino/confirmar/:token — vista pública del padrino
+  // Obtener email del usuario autenticado
+  const { data: authUser } = await supabase.auth.admin.getUserById(userId);
+  const myEmail = authUser?.user?.email;
+
+  if (!myEmail) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+
+  // Buscar apadrinados: usuarios cuyo godparent_email es el email actual
+  const { data: apadrinados } = await supabase
+    .from('users')
+    .select('id, full_name, plant_name, plant_type')
+    .eq('godparent_email', myEmail);
+
+  if (!apadrinados || apadrinados.length === 0) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+
+  const apadrinadoIds = apadrinados.map((u: { id: string }) => u.id);
+
+  // Buscar streaks de hoy sin confirmar para esos apadrinados
+  const { data: streaks } = await supabase
+    .from('streaks')
+    .select('id, user_id')
+    .in('user_id', apadrinadoIds)
+    .eq('date', today)
+    .eq('self_reported', true)
+    .eq('godparent_confirmed', false)
+    .eq('relapse', false);
+
+  if (!streaks || streaks.length === 0) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+
+  const streakIds = streaks.map((s: { id: string }) => s.id);
+
+  // Obtener tokens activos para esos streaks
+  const { data: tokens } = await supabase
+    .from('godparent_tokens')
+    .select('streak_id, token')
+    .in('streak_id', streakIds)
+    .eq('used', false)
+    .gt('expires_at', new Date().toISOString());
+
+  if (!tokens || tokens.length === 0) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+
+  // Construir respuesta: unir apadrinado + streak + token
+  const tokenByStreak = new Map(tokens.map((t: { streak_id: string; token: string }) => [t.streak_id, t.token]));
+  const userById = new Map(apadrinados.map((u: { id: string; full_name: string; plant_name: string; plant_type: string }) => [u.id, u]));
+
+  const pending = streaks
+    .filter((s: { id: string }) => tokenByStreak.has(s.id))
+    .map((s: { id: string; user_id: string }) => {
+      const user = userById.get(s.user_id)!;
+      const token = tokenByStreak.get(s.id)!;
+
+      // Contar días confirmados del apadrinado
+      return { userId: s.user_id, token, userName: user.full_name, plantName: user.plant_name };
+    });
+
+  // Enriquecer con días totales de cada apadrinado
+  const enriched = await Promise.all(
+    pending.map(async (item: { userId: string; token: string; userName: string; plantName: string }) => {
+      const { count } = await supabase
+        .from('streaks')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', item.userId)
+        .eq('godparent_confirmed', true)
+        .eq('relapse', false);
+
+      const daysCount = (count ?? 0) + 1;
+      return {
+        token: item.token,
+        userName: item.userName,
+        plantName: item.plantName,
+        plantEmoji: getPlantStage(daysCount).emoji,
+        daysCount,
+      };
+    }),
+  );
+
+  console.log(`[padrino] ${myEmail} tiene ${enriched.length} confirmación(es) pendiente(s)`);
+  res.json({ success: true, data: enriched });
+});
+
 router.get('/confirmar/:token', async (req: Request, res: Response) => {
   const { token } = req.params;
   const supabase = getSupabase();
 
   const { data: tokenData } = await supabase
-    .from('godparent_tokens')
-    .select('*, streaks(user_id, date)')
-    .eq('token', token)
-    .maybeSingle();
+    .from('godparent_tokens').select('*, streaks(user_id, date)')
+    .eq('token', token).maybeSingle();
 
   if (!tokenData) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_NOT_FOUND', message: 'Token inválido' } };
-    res.status(404).json(body);
+    res.status(404).json({ success: false, error: { code: 'TOKEN_NOT_FOUND', message: 'Token inválido' } });
     return;
   }
-
   if (new Date(tokenData.expires_at as string) < new Date()) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_EXPIRED', message: 'Este link expiró' } };
-    res.status(410).json(body);
+    res.status(410).json({ success: false, error: { code: 'TOKEN_EXPIRED', message: 'Este link expiró' } });
     return;
   }
-
   if (tokenData.used) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_USED', message: 'Ya confirmaste este día' } };
-    res.status(409).json(body);
+    res.status(409).json({ success: false, error: { code: 'TOKEN_USED', message: 'Ya confirmaste este día' } });
     return;
   }
 
   const streak = tokenData.streaks as { user_id: string; date: string };
 
   const { data: userProfile } = await supabase
-    .from('users')
-    .select('full_name, plant_name, plant_type')
-    .eq('id', streak.user_id)
-    .single();
+    .from('users').select('full_name, plant_name').eq('id', streak.user_id).single();
 
   const { count: totalDays } = await supabase
-    .from('streaks')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', streak.user_id)
-    .eq('godparent_confirmed', true)
-    .eq('relapse', false);
+    .from('streaks').select('*', { count: 'exact', head: true })
+    .eq('user_id', streak.user_id).eq('godparent_confirmed', true).eq('relapse', false);
 
   const daysCount = (totalDays ?? 0) + 1;
-  const stage = getPlantStage(daysCount);
 
-  const body: ApiResponse<{
-    userName: string;
-    plantName: string;
-    plantEmoji: string;
-    daysCount: number;
-    frictionOptions: readonly string[];
-  }> = {
+  const body: ApiResponse = {
     success: true,
     data: {
       userName: (userProfile?.full_name as string | null) ?? 'Tu apadrinado',
       plantName: (userProfile?.plant_name as string | null) ?? 'Mi planta',
-      plantEmoji: stage.emoji,
+      plantEmoji: getPlantStage(daysCount).emoji,
       daysCount,
       frictionOptions: FRICTION_OPTIONS,
     },
@@ -88,99 +157,67 @@ router.get('/confirmar/:token', async (req: Request, res: Response) => {
   res.json(body);
 });
 
-// PATCH /api/padrino/confirmar/:token — padrino responde
 router.patch('/confirmar/:token', async (req: Request, res: Response) => {
   const { token } = req.params;
   const { frictionAnswer } = req.body as { frictionAnswer?: string };
 
   if (!frictionAnswer?.trim()) {
-    const body: ApiResponse = { success: false, error: { code: 'MISSING_ANSWER', message: 'La respuesta de confirmación es requerida' } };
-    res.status(400).json(body);
+    res.status(400).json({ success: false, error: { code: 'MISSING_ANSWER', message: 'La respuesta es requerida' } });
     return;
   }
 
   const supabase = getSupabase();
 
   const { data: tokenData } = await supabase
-    .from('godparent_tokens')
-    .select('*, streaks(id, user_id)')
-    .eq('token', token)
-    .maybeSingle();
+    .from('godparent_tokens').select('*, streaks(id, user_id)')
+    .eq('token', token).maybeSingle();
 
   if (!tokenData) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_NOT_FOUND', message: 'Enlace no válido' } };
-    res.status(404).json(body);
+    res.status(404).json({ success: false, error: { code: 'TOKEN_NOT_FOUND', message: 'Enlace no válido' } });
     return;
   }
-
   if (tokenData.used) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_USED', message: 'Este enlace ya fue usado' } };
-    res.status(409).json(body);
+    res.status(409).json({ success: false, error: { code: 'TOKEN_USED', message: 'Este enlace ya fue usado' } });
     return;
   }
-
   if (new Date(tokenData.expires_at as string) < new Date()) {
-    const body: ApiResponse = { success: false, error: { code: 'TOKEN_EXPIRED', message: 'El enlace expiró a medianoche' } };
-    res.status(410).json(body);
+    res.status(410).json({ success: false, error: { code: 'TOKEN_EXPIRED', message: 'El enlace expiró a medianoche' } });
     return;
   }
 
   const streak = tokenData.streaks as { id: string; user_id: string };
 
-  // Marcar token como usado sin importar la respuesta
-  await supabase
-    .from('godparent_tokens')
-    .update({ used: true, friction_answer: frictionAnswer.trim() })
-    .eq('token', token);
+  await supabase.from('godparent_tokens')
+    .update({ used: true, friction_answer: frictionAnswer.trim() }).eq('token', token);
 
-  // Opción 3 — incertidumbre: no confirma pero tampoco fraude
   if (frictionAnswer.trim() === UNCERTAINTY_OPTION) {
-    const body: ApiResponse<{ confirmed: boolean; message: string }> = {
-      success: true,
-      data: { confirmed: false, message: 'Gracias por tu honestidad' },
-    };
-    res.json(body);
+    console.log(`[padrino] ⚠️  Respuesta incierta para token ${token}`);
+    res.json({ success: true, data: { confirmed: false, message: 'Gracias por tu honestidad' } });
     return;
   }
 
-  // Confirmar el día en streaks
-  await supabase
-    .from('streaks')
+  await supabase.from('streaks')
     .update({ godparent_confirmed: true, godparent_confirmed_at: new Date().toISOString() })
     .eq('id', streak.id);
 
-  // Contar días totales confirmados del usuario
   const { count: totalDays } = await supabase
-    .from('streaks')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', streak.user_id)
-    .eq('godparent_confirmed', true)
-    .eq('relapse', false);
+    .from('streaks').select('*', { count: 'exact', head: true })
+    .eq('user_id', streak.user_id).eq('godparent_confirmed', true).eq('relapse', false);
 
   const daysCount = totalDays ?? 0;
-
-  // Verificar si se activó un logro nuevo
   let newAchievement: string | null = null;
   const milestone = ACHIEVEMENT_MILESTONES.find(m => m === daysCount);
 
   if (milestone) {
-    const achievementKey = `day_${milestone}`;
     const { error: achError } = await supabase
       .from('achievements')
-      .insert({ user_id: streak.user_id, achievement_key: achievementKey })
-      .select()
-      .single();
-
-    if (!achError) {
-      newAchievement = achievementKey;
-    }
+      .insert({ user_id: streak.user_id, achievement_key: `day_${milestone}` });
+    if (!achError) newAchievement = `day_${milestone}`;
   }
 
-  const body: ApiResponse<{ confirmed: boolean; daysCount: number; newAchievement: string | null }> = {
-    success: true,
-    data: { confirmed: true, daysCount, newAchievement },
-  };
-  res.json(body);
+  console.log(`[padrino] ✅ Día confirmado — ${daysCount} días totales${newAchievement ? ` | logro: ${newAchievement}` : ''}`);
+
+  res.json({ success: true, data: { confirmed: true, daysCount, newAchievement } });
 });
 
 export default router;
