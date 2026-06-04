@@ -10,19 +10,18 @@
     },
     "preview-android": {
       "distribution": "internal",
+      "channel": "preview",
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_ENV": "preview"
       }
     },
     "production": {
+      "channel": "production",
       "android": { "buildType": "app-bundle" },
       "env": {
         "EXPO_PUBLIC_ENV": "production"
       }
     }
-  },
-  "update": {
-    "channel": "production"
   }
 }

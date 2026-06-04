@@ -7,7 +7,9 @@
     "backend": "pnpm --filter backend dev",
     "build:shared": "pnpm --filter shared build",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "build:all": "pnpm -r build",
+    "postinstall": "node scripts/patch-rn-private.js"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

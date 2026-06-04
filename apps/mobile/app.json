@@ -7,7 +7,7 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/REEMPLAZAR_CON_PROJECT_ID"
+      "url": "https://u.expo.dev/8494f27d-1809-463b-a02e-922d7110bbf2"
     },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -58,9 +58,11 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "REEMPLAZAR_CON_PROJECT_ID"
+        "projectId": "8494f27d-1809-463b-a02e-922d7110bbf2"
       }
-    }
+    },
+    "owner": "juanbenitez10"
   }
 }
