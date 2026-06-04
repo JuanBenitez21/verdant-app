@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getSupabase } from '../lib/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { dailyReportLimiter } from '../middleware/rate-limit.middleware';
 import { sendGodparentEmail } from '../services/email.service';
 import { getPlantStage } from '../utils/plant.utils';
 import type { ApiResponse } from '@verdant/shared';
@@ -13,7 +14,7 @@ function midnightColombia(dateStr: string): string {
   return d.toISOString();
 }
 
-router.post('/daily', requireAuth, async (req: AuthRequest, res: Response) => {
+router.post('/daily', requireAuth, dailyReportLimiter, async (req: AuthRequest, res: Response) => {
   const userId = req.userId!;
   const { date } = req.body as { date?: string };
   const today = date ?? new Date().toISOString().split('T')[0]!;

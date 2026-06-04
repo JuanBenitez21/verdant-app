@@ -1,70 +1,73 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from '@/services/supabase';
+import {
+  registerForPushNotifications,
+  scheduleDaily8pmReminder,
+  cancelDailyReminder,
+  sendLocalCelebration,
+} from '@/services/notifications.service';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
   }),
 });
 
-export function useNotifications(userId: string | null) {
+export function useNotifications(hasReportedToday: boolean) {
+  const listenerRef = useRef<Notifications.EventSubscription | null>(null);
+
   useEffect(() => {
-    if (!userId) return;
-    registerAndSaveToken(userId);
-    scheduleDailyReminder();
-  }, [userId]);
-}
+    let mounted = true;
 
-async function registerAndSaveToken(userId: string) {
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
+    async function setup() {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('verdant', {
+          name: 'Verdant',
+          importance: Notifications.AndroidImportance.HIGH,
+        });
+      }
 
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
+      const token = await registerForPushNotifications();
+      if (!token || !mounted) return;
 
-  if (finalStatus !== 'granted') return;
+      // Persistir token en Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user.id) {
+        await supabase
+          .from('users')
+          .update({ push_token: token })
+          .eq('id', session.user.id);
+      }
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('verdant', {
-      name: 'Verdant',
-      importance: Notifications.AndroidImportance.HIGH,
+      // Recordatorio diario solo si no reportó hoy
+      if (!hasReportedToday) {
+        await scheduleDaily8pmReminder();
+      } else {
+        await cancelDailyReminder();
+      }
+    }
+
+    setup().catch(console.warn);
+
+    // Escucha respuestas a notificaciones en background
+    listenerRef.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+      if (data?.event === 'day_confirmed' && data.daysCount) {
+        sendLocalCelebration(Number(data.daysCount)).catch(console.warn);
+      }
     });
-  }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
-  if (!tokenData) return;
-
-  await supabase
-    .from('users')
-    .update({ push_token: tokenData.data })
-    .eq('id', userId);
+    return () => {
+      mounted = false;
+      listenerRef.current?.remove();
+    };
+  }, [hasReportedToday]);
 }
 
-async function scheduleDailyReminder() {
-  // Cancelar notificaciones previas para no duplicar
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: '🌱 ¿Ya reportaste tu día limpio?',
-      body: 'Tu planta te espera. ¡Sigue la racha!',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: 20,
-      minute: 0,
-    },
-  });
-}
-
-export async function cancelDailyReminder() {
-  await Notifications.cancelAllScheduledNotificationsAsync();
-}
+export { cancelDailyReminder };

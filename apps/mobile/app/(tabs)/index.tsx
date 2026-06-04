@@ -14,6 +14,7 @@ import { PlantaAnimada } from '@/components/planta/PlantaAnimada';
 import { FunFactSheet } from '@/components/funfact/FunFactSheet';
 import { PadrinoCard } from '@/components/padrino/PadrinoCard';
 import { CelebrationModal } from '@/components/ui/CelebrationModal';
+import { SkeletonLoader } from '@/components/ui/SkeletonLoader';
 import { getSimulatedWearableData, formatPasos } from '@/services/wearable.service';
 import { useNotifications, cancelDailyReminder } from '@/hooks/useNotifications';
 import type { PlantType } from '@verdant/shared';
@@ -33,6 +34,7 @@ export default function DashboardScreen() {
   const { signOut } = useAuth();
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [funFactVisible, setFunFactVisible] = useState(false);
 
   const previousDiasRef = useRef(0);
@@ -41,7 +43,7 @@ export default function DashboardScreen() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       const id = session?.user?.id ?? null;
       setUserId(id);
-      if (!id) return;
+      if (!id) { setProfileLoaded(true); return; }
 
       supabase
         .from('users')
@@ -53,13 +55,14 @@ export default function DashboardScreen() {
             setProfile(data as UserProfile);
             setPlant(data.plant_type as PlantType, data.plant_name);
           }
+          setProfileLoaded(true); // siempre marcar como cargado
         });
     });
   }, []);
 
   const racha = useRacha(userId);
   const { score, scoreLevel, cargarScore } = useScore();
-  useNotifications(userId);
+  useNotifications(racha.godparentConfirmedToday || !racha.puedeReportarHoy);
   const { pendientes, cargarPendientes } = usePadrino();
 
   useEffect(() => {
@@ -69,8 +72,13 @@ export default function DashboardScreen() {
   }, [userId]);
 
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') cargarPendientes();
+    const sub = AppState.addEventListener('change', (appState) => {
+      if (appState === 'active' && userId) {
+        // Refresca todo al volver al frente (cubre confirmaciones mientras la app estaba en background)
+        racha.cargarRacha();
+        cargarScore();
+        cargarPendientes();
+      }
     });
     return () => sub.remove();
   }, [userId]);
@@ -105,6 +113,9 @@ export default function DashboardScreen() {
       { text: 'Salir', style: 'destructive', onPress: signOut },
     ]);
   }
+
+  // Solo muestra skeleton mientras la query no termina (no si el perfil simplemente no existe en BD)
+  const isLoadingProfile = !profileLoaded && userId !== null;
 
   const firstName = profile?.full_name?.split(' ')[0] ?? 'amigo';
   const ahorro = calcularAhorro({
@@ -141,20 +152,35 @@ export default function DashboardScreen() {
         </View>
 
         {/* Planta — hero principal */}
-        <View style={styles.plantCard}>
-          <PlantaAnimada diasTotales={racha.diasTotales} previousDias={previousDiasRef.current} />
-          <Text style={styles.plantName}>{profile?.plant_name ?? 'Mi planta'}</Text>
-          <Text style={styles.plantStage}>{currentStage.label}</Text>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>{streakLabel}</Text>
+        {isLoadingProfile ? (
+          <View style={[styles.plantCard, { alignItems: 'center', gap: Spacing.sm }]}>
+            <SkeletonLoader width={90} height={90} borderRadius={45} />
+            <SkeletonLoader width={140} height={20} />
+            <SkeletonLoader width={100} height={16} />
           </View>
-        </View>
+        ) : (
+          <View style={styles.plantCard}>
+            <PlantaAnimada diasTotales={racha.diasTotales} previousDias={previousDiasRef.current} />
+            <Text style={styles.plantName}>{profile?.plant_name ?? 'Mi planta'}</Text>
+            <Text style={styles.plantStage}>{currentStage.label}</Text>
+            <View style={styles.streakBadge}>
+              <Text style={styles.streakText}>{streakLabel}</Text>
+            </View>
+          </View>
+        )}
 
         {/* Métricas */}
-        <View style={styles.metricsRow}>
-          <MetricCard label="Ahorrado" value={formatCOP(ahorro.ahorrosCOP)} sub="en total" />
-          <MetricCard label="Cigarrillos" value={String(ahorro.cigarrillosEvitados)} sub="evitados" />
-        </View>
+        {isLoadingProfile ? (
+          <View style={styles.metricsRow}>
+            <SkeletonLoader width="48%" height={80} borderRadius={18} />
+            <SkeletonLoader width="48%" height={80} borderRadius={18} />
+          </View>
+        ) : (
+          <View style={styles.metricsRow}>
+            <MetricCard label="Ahorrado" value={formatCOP(ahorro.ahorrosCOP)} sub="en total" />
+            <MetricCard label="Cigarrillos" value={String(ahorro.cigarrillosEvitados)} sub="evitados" />
+          </View>
+        )}
 
         {/* Botón principal — 3 estados */}
         {racha.puedeReportarHoy && (
@@ -162,6 +188,8 @@ export default function DashboardScreen() {
             style={[styles.reportBtn, racha.isReporting && styles.reportBtnDisabled]}
             onPress={handleReportarDia}
             disabled={racha.isReporting}
+            accessibilityLabel="Reportar que hoy fue un día sin fumar"
+            accessibilityRole="button"
           >
             {racha.isReporting ? (
               <ActivityIndicator color={Colors.white} />

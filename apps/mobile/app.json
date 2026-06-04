@@ -1,8 +1,14 @@
 {
   "expo": {
     "name": "Verdant",
-    "slug": "verdant-app",
+    "slug": "verdant",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REEMPLAZAR_CON_PROJECT_ID"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "verdant",
@@ -10,16 +16,23 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0d2618"
+      "backgroundColor": "#1e5435"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.verdant.app"
+      "bundleIdentifier": "com.verdant.app",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Verdant necesita acceso a la red local para conectarse al servidor de desarrollo."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0d2618"
+        "backgroundColor": "#1e5435"
       },
       "package": "com.verdant.app"
     },
@@ -43,6 +56,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REEMPLAZAR_CON_PROJECT_ID"
+      }
     }
   }
 }

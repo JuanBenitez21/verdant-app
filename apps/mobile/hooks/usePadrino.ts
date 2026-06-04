@@ -1,14 +1,10 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/services/supabase';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiFetch, isNetworkError } from '@/services/api.service';
+import { getPlantStage } from '@/constants/plants';
 
 export interface PendingConfirmation {
-  token: string;
-  userName: string;
-  plantName: string;
-  plantEmoji: string;
-  daysCount: number;
+  token: string; userName: string; plantName: string; plantEmoji: string; daysCount: number;
 }
 
 export function usePadrino() {
@@ -17,21 +13,25 @@ export function usePadrino() {
 
   const cargarPendientes = useCallback(async () => {
     setIsLoading(true);
+    try {
+      // 1️⃣ Intenta backend
+      const br = await apiFetch<PendingConfirmation[]>('/api/padrino/mis-pendientes');
+      if (!isNetworkError(br)) {
+        setPendientes(br.success ? (br.data ?? []) : []);
+        setIsLoading(false);
+        return;
+      }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+      // 2️⃣ Fallback Supabase RPC
+      const { data, error } = await supabase.rpc('get_my_pending_confirmations');
+      if (error || !data) { setPendientes([]); setIsLoading(false); return; }
 
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
-
-    const res = await fetch(`${API_URL}/api/padrino/mis-pendientes`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const json = await res.json() as { success: boolean; data?: PendingConfirmation[] };
-    setPendientes(json.success ? (json.data ?? []) : []);
+      type Row = { token: string; userName: string; plantName: string; plantType: string; daysCount: number };
+      setPendientes((data as Row[]).map(r => ({
+        token: r.token, userName: r.userName, plantName: r.plantName,
+        plantEmoji: getPlantStage(r.daysCount).emoji, daysCount: r.daysCount,
+      })));
+    } catch { setPendientes([]); }
     setIsLoading(false);
   }, []);
 

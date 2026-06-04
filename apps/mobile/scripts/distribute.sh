@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "🌿 Verdant — Distribución gratuita"
+echo ""
+echo "OPCIÓN 1: Actualizar la app en Expo Go (iOS + Android)"
+echo "Comando: eas update --channel production --message 'descripcion'"
+echo ""
+echo "OPCIÓN 2: Generar APK para Android (descarga directa)"
+echo "Comando: eas build --platform android --profile preview-android"
+echo ""
+echo "Los usuarios iOS abren Expo Go y escanean el QR o abren el link."
+echo "Los usuarios Android descargan e instalan el APK directamente."

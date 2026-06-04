@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getSupabase } from '../lib/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth.middleware';
+import { padrinoConfirmLimiter } from '../middleware/rate-limit.middleware';
 import { getPlantStage } from '../utils/plant.utils';
 import { sendPushNotification } from '../services/notification.service';
 import type { ApiResponse } from '@verdant/shared';
@@ -158,7 +159,7 @@ router.get('/confirmar/:token', async (req: Request, res: Response) => {
   res.json(body);
 });
 
-router.patch('/confirmar/:token', async (req: Request, res: Response) => {
+router.patch('/confirmar/:token', padrinoConfirmLimiter, async (req: Request, res: Response) => {
   const { token } = req.params;
   const { frictionAnswer } = req.body as { frictionAnswer?: string };
 

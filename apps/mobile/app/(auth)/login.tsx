@@ -97,7 +97,7 @@ export default function LoginScreen() {
           <View>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Contraseña</Text>
-              <Pressable onPress={() => setError('Recuperación de contraseña próximamente')}>
+              <Pressable onPress={() => router.push('/forgot-password' as never)} accessibilityLabel="Ir a recuperación de contraseña">
                 <Text style={styles.forgotLink}>¿Olvidé contraseña?</Text>
               </Pressable>
             </View>
@@ -142,6 +142,18 @@ export default function LoginScreen() {
             <Text style={styles.registerLink}>Regístrate</Text>
           </Text>
         </Pressable>
+
+        {/* Legal */}
+        <Text style={styles.legalText}>
+          Al registrarte aceptas los{' '}
+          <Text style={styles.legalLink} onPress={() => router.push('/terminos' as never)}>
+            Términos de uso
+          </Text>
+          {' '}y la{' '}
+          <Text style={styles.legalLink} onPress={() => router.push('/privacidad' as never)}>
+            Política de privacidad
+          </Text>
+        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -271,5 +283,15 @@ const styles = StyleSheet.create({
   registerLink: {
     color: Colors.green300,
     fontWeight: '600',
+  },
+  legalText: {
+    ...Typography.caption,
+    color: Colors.green600,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  legalLink: {
+    color: Colors.green300,
+    textDecorationLine: 'underline',
   },
 });

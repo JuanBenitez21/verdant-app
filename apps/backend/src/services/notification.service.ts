@@ -1,10 +1,3 @@
-interface ExpoMessage {
-  to: string;
-  title: string;
-  body: string;
-  data?: Record<string, unknown>;
-}
-
 export async function sendPushNotification(
   pushToken: string | null | undefined,
   title: string,
@@ -15,27 +8,35 @@ export async function sendPushNotification(
     console.log(`[notif] Sin token push — título: "${title}"`);
     return;
   }
+  await sendExpoPushNotification(pushToken, title, body, data);
+}
 
-  const message: ExpoMessage = { to: pushToken, title, body, ...(data ? { data } : {}) };
+async function sendExpoPushNotification(
+  pushToken: string,
+  title: string,
+  body: string,
+  data?: object,
+): Promise<void> {
+  if (!pushToken.startsWith('ExponentPushToken')) return;
 
   try {
-    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
         'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify({ to: pushToken, sound: 'default', title, body, data: data ?? {} }),
     });
 
-    const json = await res.json() as { data?: { status: string } };
-    if (json.data?.status !== 'ok') {
-      console.warn('[notif] Expo push respondió con estado inesperado:', json);
+    const result = await response.json() as { data?: { status: string; message?: string } };
+    if (result.data?.status === 'error') {
+      console.error('[notif] Expo push error:', result.data.message);
     } else {
       console.log(`[notif] ✅ Push enviado — "${title}"`);
     }
-  } catch (err) {
-    console.error('[notif] Error enviando push:', err);
+  } catch (error) {
+    console.error('[notif] Error enviando push:', error);
   }
 }

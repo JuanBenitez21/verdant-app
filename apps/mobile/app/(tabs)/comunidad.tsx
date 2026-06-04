@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
+  View, Text, ScrollView, Pressable, StyleSheet,
   RefreshControl, SafeAreaView,
 } from 'react-native';
 import { supabase } from '@/services/supabase';
 import { Colors, ScreenTheme, Typography, Spacing, Radius } from '@/constants';
+import { SkeletonLoader } from '@/components/ui/SkeletonLoader';
 
 const T = ScreenTheme.dark;
 
@@ -123,8 +124,11 @@ export default function ComunidadScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.green400} />
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <SkeletonLoader width={200} height={28} />
+          {[0, 1, 2].map(i => <SkeletonLoader key={i} width="100%" height={110} borderRadius={24} />)}
+        </ScrollView>
       </SafeAreaView>
     );
   }
