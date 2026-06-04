@@ -691,32 +691,4 @@ const styles = StyleSheet.create({
 
 ---
 
-## 15. Sprint actual — qué estamos construyendo
 
-**Sprint 1 — Setup + Auth + Navegación base**
-
-Objetivos de este sprint:
-- [ ] Monorepo inicializado con pnpm workspaces
-- [ ] Expo app con TypeScript + Expo Router + NativeWind
-- [ ] Supabase conectado (auth + db schema creado)
-- [ ] Pantalla Login funcional con validación de correo institucional
-- [ ] Pantalla Registro (paso 1 de 4) conectada a Supabase Auth
-- [ ] Navegación base: (auth) → (tabs)
-- [ ] Variables de entorno configuradas
-
-**Cuando termines una tarea, márcala con [x] y avanza a la siguiente.**
-
----
-
-## 16. Instrucciones para Claude
-
-- Antes de crear un archivo, verifica si ya existe en la estructura de carpetas de la sección 3.
-- Usa siempre TypeScript strict. No usar `any`.
-- Los colores vienen exclusivamente de `constants/colors.ts`. Nunca hardcodear hex en componentes.
-- Cada componente nuevo debe tener su archivo de tipos si tiene más de 2 props.
-- Al crear una pantalla nueva, verifica que el flujo de negocio correspondiente esté en la sección 12.
-- Los textos de la UI siempre en español colombiano.
-- Al terminar una función, escribe un comentario de una línea explicando qué hace.
-- Nunca crear `useEffect` para lógica que puede ir en un event handler.
-- Cuando generes código de backend, incluye siempre el manejo de errores.
-- Si una tarea requiere una variable de entorno nueva, agrégala a `.env.example` y documéntala en la sección 13.
